@@ -6,11 +6,6 @@ use glob::glob;
 use crate::indexer::indexer::IndexBatch;
 
 fn main() {
-
-    print!("Enter index directory> \r\n");
-    let mut index_dir = String::new();
-    async_std::task::block_on(io::stdin().read_line(&mut index_dir));
-
     let batch_count = 20;
 
     let mut batches: Vec<Vec<String>> = Vec::new();
@@ -22,7 +17,7 @@ fn main() {
     let mut i = 0;
 
     // Break up into batches.
-    for path in glob(index_dir).expect("Failed to read glob pattern") {
+    for path in glob("D:\\Repos\\RepoName\\src\\**\\*").expect("Failed to read glob pattern") {
         match path {
             Ok(path) => {
                 batches[i % batch_count].push(path.display().to_string());
