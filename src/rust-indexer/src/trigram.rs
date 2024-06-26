@@ -1,6 +1,6 @@
 
 #[derive(Debug)]
-struct Trigram {
+pub struct Trigram {
     first: u8,
     second: u8,
     third: u8
@@ -24,6 +24,10 @@ impl Trigram {
         }
 
         trigrams
+    }
+
+    pub fn to_u32(&self) -> u32 {
+        ((self.first as u32) << 16) | ((self.second as u32) << 8) | ((self.third as u32) << 0)
     }
 }
 

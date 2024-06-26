@@ -1,6 +1,6 @@
 use std::iter::Iterator;
 
-struct BloomFilter {
+pub struct BloomFilter {
     filter: u32
 }
 
