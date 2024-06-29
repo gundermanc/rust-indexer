@@ -46,7 +46,7 @@ impl Index {
                 .map(|t| t.to_u32())
                 .collect();
     
-            let bloom_filter = BloomFilter::new(&u32s);
+            let bloom_filter = BloomFilter::new(&u32s, 100);
     
             self.files.push(File {
                 file_path: file_path.to_string(),
@@ -65,7 +65,7 @@ impl Index {
             .map(|t| t.to_u32())
             .collect();
         
-        let query_bloom_filter = BloomFilter::new(&u32s);
+        let query_bloom_filter = BloomFilter::new(&u32s, 100);
 
         let mut results = HashSet::new();
 
