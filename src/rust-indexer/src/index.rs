@@ -1,6 +1,6 @@
-use crate::bloom::BloomFilter;
+use crate::{bloom::BloomFilter, str_utils::lowercase_alphanumeric_only};
 use crate::trigram::Trigram;
-use std::{collections::{HashMap, HashSet}, path::Path};
+use std::{collections::HashSet, path::Path};
 
 pub fn index_directory(path: &str) -> Index {
     let mut index = Index::new();
@@ -39,7 +39,7 @@ impl Index {
 
     pub fn add_file(&mut self, file_path: &str) {
         if let Ok(file_text) = std::fs::read_to_string(Path::new(file_path)) {
-            let trigrams = Trigram::from_str(&file_text);
+            let trigrams = Trigram::from_str(&&lowercase_alphanumeric_only(&file_text));
 
             let u32s: Vec<u32> = trigrams
                 .iter()
