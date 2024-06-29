@@ -5,8 +5,7 @@ pub struct BloomFilter {
 }
 
 impl BloomFilter {
-    pub fn 
-    new(inputs: &[u32], filter_size: usize) -> BloomFilter {
+    pub fn new(inputs: &[u32], filter_size: usize) -> BloomFilter {
 
         let mut filter_array = Vec::from_iter(
             (0u8..1u8).cycle().take(filter_size));

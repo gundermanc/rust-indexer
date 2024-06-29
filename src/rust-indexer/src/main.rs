@@ -1,5 +1,5 @@
 fn main() {
-    let index = rust_indexer::index::index_directory("D:\\Repos\\Roslyn\\src");
+    let index = rust_indexer::index::index_directory("/home/christian/code/rust-indexer/src");
 
     loop {
         println!();
@@ -12,7 +12,7 @@ fn main() {
         let stdin = std::io::stdin(); // We get `Stdin` here.
         stdin.read_line(&mut buffer).unwrap();
 
-        let matches = index.search_files(&buffer);
+        let matches = index.search_files(&buffer.trim());
 
         for result_file in &matches {
             println!("{}", result_file);

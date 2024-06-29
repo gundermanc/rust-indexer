@@ -46,7 +46,7 @@ impl Index {
                 .map(|t| t.to_u32())
                 .collect();
     
-            let bloom_filter = BloomFilter::new(&u32s, 100);
+            let bloom_filter = BloomFilter::new(&u32s, 2_000);
     
             self.files.push(File {
                 file_path: file_path.to_string(),
@@ -65,12 +65,12 @@ impl Index {
             .map(|t| t.to_u32())
             .collect();
         
-        let query_bloom_filter = BloomFilter::new(&u32s, 100);
+        let query_bloom_filter = BloomFilter::new(&u32s, 2_000);
 
         let mut results = HashSet::new();
 
         for file in &self.files {
-            if query_bloom_filter.possibly_contains(&file.bloom_filter) {
+            if file.bloom_filter.possibly_contains(&query_bloom_filter) {
                 results.insert(file.file_path.clone());
             }
         }
