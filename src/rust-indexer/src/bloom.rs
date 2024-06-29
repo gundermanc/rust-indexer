@@ -5,19 +5,19 @@ pub struct BloomFilter {
 }
 
 impl BloomFilter {
-    pub fn new(inputs: &[u32], filter_size: usize) -> BloomFilter {
+    pub fn 
+    new(inputs: &[u32], filter_size: usize) -> BloomFilter {
 
         let mut filter_array = Vec::from_iter(
-            (0..0).cycle().take(filter_size));
+            (0u8..1u8).cycle().take(filter_size));
 
         for input in inputs {
-            let index = input_to_index(*input);
-            filter_array[index] = input % u8::MAX as u32;
+            let (index, bit) = input_to_offset_and_bit(*input, filter_size);
+            filter_array[index] |= bit;
         }
 
         BloomFilter {
-            filter_array: Vec::from_iter(
-                (0..0).cycle().take(filter_size))
+            filter_array: filter_array
         }
     }
 
@@ -34,12 +34,13 @@ impl BloomFilter {
 
         return true;
     }
-
-
 }
 
-fn input_to_index(input: u32) -> usize {
-    (input as usize) / (u8::MAX as usize)
+fn input_to_offset_and_bit(input: u32, array_length: usize) -> (usize, u8) {
+    let offset = ((input / u8::BITS) as usize) % array_length;
+    let bit = 1 << (input % u8::BITS) as u8;
+
+    return (offset, bit);
 }
 
 #[cfg(test)]
@@ -84,5 +85,74 @@ mod tests {
         let query = BloomFilter::new(&[0b0101], 4);
         assert!(filter.possibly_contains(&query));
         assert!(!query.possibly_contains(&filter));
+    }
+
+    #[test]
+    fn bloom_bitwrapping() {
+        let filter = BloomFilter::new(&[0], 1);
+        assert_eq!(0b0000_0001, filter.filter_array[0]);
+
+        let filter = BloomFilter::new(&[1], 1);
+        assert_eq!(0b0000_0010, filter.filter_array[0]);
+
+        let filter = BloomFilter::new(&[2], 1);
+        assert_eq!(0b0000_0100, filter.filter_array[0]);
+
+        let filter = BloomFilter::new(&[3], 1);
+        assert_eq!(0b0000_1000, filter.filter_array[0]);
+
+        let filter = BloomFilter::new(&[4], 1);
+        assert_eq!(0b0001_0000, filter.filter_array[0]);
+
+        let filter = BloomFilter::new(&[5], 1);
+        assert_eq!(0b0010_0000, filter.filter_array[0]);
+
+        let filter = BloomFilter::new(&[6], 1);
+        assert_eq!(0b0100_0000, filter.filter_array[0]);
+
+        let filter = BloomFilter::new(&[7], 1);
+        assert_eq!(0b1000_0000, filter.filter_array[0]);
+
+        let filter = BloomFilter::new(&[8], 1);
+        assert_eq!(0b0000_0001, filter.filter_array[0]);
+    }
+
+    #[test]
+    fn bloom_bytemapping() {
+        let filter = BloomFilter::new(&[0], 2);
+        assert_eq!(0b0000_0001, filter.filter_array[0]);
+        assert_eq!(0b0000_0000, filter.filter_array[1]);
+
+        let filter = BloomFilter::new(&[1], 2);
+        assert_eq!(0b0000_0010, filter.filter_array[0]);
+        assert_eq!(0b0000_0000, filter.filter_array[1]);
+
+        let filter = BloomFilter::new(&[2], 2);
+        assert_eq!(0b0000_0100, filter.filter_array[0]);
+        assert_eq!(0b0000_0000, filter.filter_array[1]);
+
+        let filter = BloomFilter::new(&[3], 2);
+        assert_eq!(0b0000_1000, filter.filter_array[0]);
+        assert_eq!(0b0000_0000, filter.filter_array[1]);
+
+        let filter = BloomFilter::new(&[4], 2);
+        assert_eq!(0b0001_0000, filter.filter_array[0]);
+        assert_eq!(0b0000_0000, filter.filter_array[1]);
+
+        let filter = BloomFilter::new(&[5], 2);
+        assert_eq!(0b0010_0000, filter.filter_array[0]);
+        assert_eq!(0b0000_0000, filter.filter_array[1]);
+
+        let filter = BloomFilter::new(&[6], 2);
+        assert_eq!(0b0100_0000, filter.filter_array[0]);
+        assert_eq!(0b0000_0000, filter.filter_array[1]);
+
+        let filter = BloomFilter::new(&[7], 2);
+        assert_eq!(0b1000_0000, filter.filter_array[0]);
+        assert_eq!(0b0000_0000, filter.filter_array[1]);
+
+        let filter = BloomFilter::new(&[8], 2);
+        assert_eq!(0b0000_0000, filter.filter_array[0]);
+        assert_eq!(0b0000_0001, filter.filter_array[1]);
     }
 }
