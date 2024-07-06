@@ -1,14 +1,14 @@
 use std::iter::Iterator;
 
 pub struct BloomFilter {
-    pub filter_array: Vec<u8>
+    pub filter_array: Vec<u64>
 }
 
 impl BloomFilter {
     pub fn new(inputs: &[u32], filter_size: usize) -> BloomFilter {
 
         let mut filter_array = Vec::from_iter(
-            (0u8..1u8).cycle().take(filter_size));
+            (0u64..1u64).cycle().take(filter_size));
 
         for input in inputs {
             let (index, bit) = input_to_offset_and_bit(*input, filter_size);
@@ -35,9 +35,9 @@ impl BloomFilter {
     }
 }
 
-fn input_to_offset_and_bit(input: u32, array_length: usize) -> (usize, u8) {
-    let offset = ((input / u8::BITS) as usize) % array_length;
-    let bit = 1 << (input % u8::BITS) as u8;
+fn input_to_offset_and_bit(input: u32, array_length: usize) -> (usize, u64) {
+    let offset = ((input / u64::BITS) as usize) % array_length;
+    let bit = 1 << (input % u64::BITS) as u64;
 
     return (offset, bit);
 }
