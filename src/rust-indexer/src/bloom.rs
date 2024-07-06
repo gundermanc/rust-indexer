@@ -1,7 +1,7 @@
 use std::iter::Iterator;
 
 pub struct BloomFilter {
-    filter_array: Vec<u8>
+    pub filter_array: Vec<u8>
 }
 
 impl BloomFilter {
