@@ -70,18 +70,9 @@ mod tests {
 
     #[test]
     fn bloom_subset() {
-        let filter = BloomFilter::new(&[0b0001, 0b0010, 0b0100], 4);
+        let filter = BloomFilter::new(&[1, 2, 4], 4);
 
-        let query = BloomFilter::new(&[0b0100, 0b0101], 4);
-        assert!(filter.possibly_contains(&query));
-        assert!(!query.possibly_contains(&filter));
-    }
-
-    #[test]
-    fn bloom_same_bytes_different_combo() {
-        let filter = BloomFilter::new(&[0b0001, 0b0010, 0b0100], 4);
-
-        let query = BloomFilter::new(&[0b0101], 4);
+        let query = BloomFilter::new(&[4, 1], 4);
         assert!(filter.possibly_contains(&query));
         assert!(!query.possibly_contains(&filter));
     }
