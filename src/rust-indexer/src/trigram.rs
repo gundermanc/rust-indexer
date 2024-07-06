@@ -20,10 +20,19 @@ impl Trigram {
                 third: text_bytes[i + 2],
             };
 
-            trigrams.push(trigram);
+            // TODO: perhaps decouple lowercase from the regular code path.
+            trigrams.push(trigram.to_lower());
         }
 
         trigrams
+    }
+
+    fn to_lower(&self) -> Trigram {
+        Trigram {
+            first: self.first.to_ascii_lowercase(),
+            second: self.second.to_ascii_lowercase(),
+            third: self.third.to_ascii_lowercase(),
+        }
     }
 
     pub fn to_u32(&self) -> u32 {
