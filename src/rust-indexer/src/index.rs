@@ -1,9 +1,12 @@
-use crate::{bloom::BloomFilter, str_utils::lowercase_alphanumeric_only};
+use crate::{bloom::BloomFilter, compression_utils::lowercase_alphanumeric_only};
 use crate::trigram::Trigram;
+use std::collections::HashMap;
 use std::{collections::HashSet, path::Path};
 
-pub fn index_directory(path: &str) -> Index {
-    let mut index = Index::new();
+const BLOOM_FILTER_SIZE: usize = 714;
+
+pub fn index_directory(path: &str, track_repo_stats: bool) -> Index {
+    let mut index = Index::new(track_repo_stats);
 
     index_directory_recursive(&mut index, path);
 
@@ -27,12 +30,14 @@ fn index_directory_recursive(index: &mut Index, path: &str) {
 }
 
 pub struct Index {
+    trigram_counts: Option<HashMap<Trigram, usize>>,
     files: Vec<File>
 }
 
 impl Index {
-    pub fn new() -> Index {
+    fn new(track_repo_stats: bool) -> Index {
         Index {
+            trigram_counts: if track_repo_stats { Some(HashMap::new()) } else { None },
             files: Vec::new()
         }
     }
@@ -41,12 +46,15 @@ impl Index {
         if let Ok(file_text) = std::fs::read_to_string(Path::new(file_path)) {
             let trigrams = Trigram::from_str(&&lowercase_alphanumeric_only(&file_text));
 
+            // If stats tracking is enabled, record how often we see each trigram.
+            Self::record_trigram_counts_if_needed(&mut self.trigram_counts, &trigrams);
+
             let u32s: Vec<u32> = trigrams
                 .iter()
                 .map(|t| t.to_u32())
                 .collect();
     
-            let bloom_filter = BloomFilter::new(&u32s, 2_000);
+            let bloom_filter = BloomFilter::new(&u32s, BLOOM_FILTER_SIZE);
     
             self.files.push(File {
                 file_path: file_path.to_string(),
@@ -57,15 +65,33 @@ impl Index {
         }
     }
 
+    pub fn files_count(&self) -> usize {
+        self.files.len()
+    }
+
+    pub fn trigram_stats(&self) -> Option<Vec<(Trigram, usize)>> {
+        if let Some(trigram_counts_present) = &self.trigram_counts {
+            let mut trigrams: Vec<(Trigram, usize)> = Vec::from_iter(
+                trigram_counts_present.iter().map(|pair| (pair.0.clone(), *pair.1)));
+
+            // Sort in descending order by count.
+            trigrams.sort_by(|a, b| a.1.cmp(&b.1));
+
+            Some(trigrams)
+        } else {
+            None
+        }
+    }
+
     pub fn search_files(&self, query: &str) -> HashSet<String> {
-        let query_trigrams = Trigram::from_str(query);
+        let query_trigrams = Trigram::from_str(&lowercase_alphanumeric_only(query));
 
         let u32s: Vec<u32> = query_trigrams
             .iter()
             .map(|t| t.to_u32())
             .collect();
         
-        let query_bloom_filter = BloomFilter::new(&u32s, 2_000);
+        let query_bloom_filter = BloomFilter::new(&u32s, BLOOM_FILTER_SIZE);
 
         let mut results = HashSet::new();
 
@@ -76,6 +102,21 @@ impl Index {
         }
 
         results
+    }
+
+    fn record_trigram_counts_if_needed(trigram_counts: &mut Option<HashMap<Trigram, usize>>, trigrams: &[Trigram]) {
+        if let Some(trigram_counts_present) = trigram_counts {
+            for trigram in trigrams {
+
+                let updated_count = if let Some(this_trigrams_counts) = trigram_counts_present.get(trigram) {
+                    *this_trigrams_counts + 1
+                } else {
+                    1usize
+                };
+    
+                trigram_counts_present.insert(trigram.clone(), updated_count);
+            }
+        }
     }
 }
 

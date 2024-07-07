@@ -1,5 +1,5 @@
 mod bloom;
 pub mod index;
-mod str_utils;
-mod text_scraping;
+mod compression_utils;
+pub mod text_scraping;
 mod trigram;

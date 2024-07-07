@@ -1,9 +1,10 @@
+use std::{fmt::Debug, hash::{Hash, Hasher}, io::SeekFrom, string::FromUtf8Error};
 
-#[derive(Debug)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Trigram {
-    first: u8,
-    second: u8,
-    third: u8
+    pub first: u8,
+    pub second: u8,
+    pub third: u8
 }
 
 impl Trigram {
@@ -37,6 +38,10 @@ impl Trigram {
 
     pub fn to_u32(&self) -> u32 {
         ((self.first as u32) << 16) | ((self.second as u32) << 8) | ((self.third as u32) << 0)
+    }
+
+    pub fn to_string(&self) -> Result<String, FromUtf8Error> {
+        String::from_utf8(vec![self.first, self.second, self.third])
     }
 }
 

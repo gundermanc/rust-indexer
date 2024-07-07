@@ -1,11 +1,11 @@
 pub struct Match {
-    file_path: String,
-    offset: usize,
-    length: usize,
-    text: String,
+    pub file_path: String,
+    pub offset: usize,
+    pub length: usize,
+    pub text: String,
 }
 
-fn scrape_files(files: &[&str], query: &str) -> Vec<Match> {
+pub fn scrape_files(files: &[String], query: &str) -> Vec<Match> {
     if query.len() == 0 {
         return vec![];
     }
@@ -16,21 +16,36 @@ fn scrape_files(files: &[&str], query: &str) -> Vec<Match> {
         // TODO: I'm sure that we can do this faster by doing case-insensitive comparisons
         // instead of a to_lowercase().
         let file_text = std::fs::read_to_string(file).unwrap();
-        let lowered_file_text = file_text.to_lowercase();
+        let file_text_without_bom = drop_bom(&file_text);
+        let lowered_file_text = file_text_without_bom.to_lowercase();
+        let lowered_query = query.to_lowercase();
 
+        // TODO: hard coding 1 to skip BOM.
         for i in 0..file_text.len() {
-            if lowered_file_text[i..].starts_with(query) {
+            if lowered_file_text.is_char_boundary(i) &&
+                lowered_file_text[i..].starts_with(&lowered_query) {
                 matches.push(Match {
                     file_path: file.to_string(),
                     offset: i,
-                    length: query.len(),
-                    text: format_match(&file_text, &lowered_file_text, i, query.len(), 5)
+                    length: lowered_query.len(),
+                    text: format_match(&file_text_without_bom, &lowered_file_text, i, lowered_query.len(), 5)
                 });
             }
         }
     }
 
     matches
+}
+
+fn drop_bom(text: &str) -> &str {
+    let bytes = text.as_bytes();
+
+    if bytes.len() >= 3 &&
+        bytes[0] == 0xef && bytes[1] == 0xbb && bytes[2] == 0xbf {
+            return &text[3..];
+        }
+
+    return text;
 }
 
 fn format_match(file_text: &str, lowered_file_text: &str, offset: usize, length: usize, surrounding_lines: usize) -> String {
@@ -73,6 +88,8 @@ fn format_match(file_text: &str, lowered_file_text: &str, offset: usize, length:
 // half as many lines for those due to counting CR and LF as a separate lines.
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use super::scrape_files;
 
     #[test]
@@ -81,7 +98,7 @@ mod tests {
             println!("{}", file.unwrap().path().display());
         }
 
-        let matches = scrape_files(&vec!["test-assets/test-file-lf.txt"], "");
+        let matches = scrape_files(&vec![String::from_str("test-assets/test-file-lf.txt").unwrap()], "");
 
         assert!(matches.len() == 0);
     }
@@ -92,7 +109,7 @@ mod tests {
             println!("{}", file.unwrap().path().display());
         }
 
-        let matches = scrape_files(&vec!["test-assets/test-file-lf.txt"], "abc");
+        let matches = scrape_files(&vec![String::from_str("test-assets/test-file-lf.txt").unwrap()], "abc");
 
         assert_eq!(3, matches.len());
 
@@ -113,12 +130,38 @@ mod tests {
     }
 
     #[test]
+    fn scrape_matches_lf_bom() {
+        for file in std::fs::read_dir(".").unwrap() {
+            println!("{}", file.unwrap().path().display());
+        }
+
+        let matches = scrape_files(&vec![String::from_str("test-assets/test-file-lf-BOM.txt").unwrap()], "abc");
+
+        assert_eq!(3, matches.len());
+
+        assert_eq!("test-assets/test-file-lf-BOM.txt", matches[0].file_path);
+        assert_eq!(0, matches[0].offset);
+        assert_eq!(3, matches[0].length);
+        assert_eq!("ABCDEFGH\nIJKLMNOP\nQRSTUVWX", matches[0].text);
+
+        assert_eq!("test-assets/test-file-lf-BOM.txt", matches[1].file_path);
+        assert_eq!(36, matches[1].offset);
+        assert_eq!(3, matches[1].length);
+        assert_eq!("QRSTUVWX\nYZ012345\nABCDEFGH ABCDEFGH\nIJKLMNOP IJKLMNOP\nQRSTUVWX QRSTUVWX", matches[1].text);
+
+        assert_eq!("test-assets/test-file-lf-BOM.txt", matches[2].file_path);
+        assert_eq!(45, matches[2].offset);
+        assert_eq!(3, matches[2].length);
+        assert_eq!("QRSTUVWX\nYZ012345\nABCDEFGH ABCDEFGH\nIJKLMNOP IJKLMNOP\nQRSTUVWX QRSTUVWX", matches[2].text);
+    }
+
+    #[test]
     fn scrape_nonmatches_lf() {
         for file in std::fs::read_dir(".").unwrap() {
             println!("{}", file.unwrap().path().display());
         }
 
-        let matches = scrape_files(&vec!["test-assets/test-file-lf.txt"], "cba");
+        let matches = scrape_files(&vec![String::from_str("test-assets/test-file-lf.txt").unwrap()], "cba");
 
         assert_eq!(0, matches.len());
     }
