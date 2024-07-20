@@ -1,8 +1,38 @@
+use tokio::{runtime, task::JoinSet};
+
+#[derive(Clone)]
 pub struct Match {
     pub file_path: String,
     pub offset: usize,
     pub length: usize,
     pub text: String,
+}
+
+pub async fn parallel_scrape_files(files: &[String], query: &str) -> Vec<Match> {
+    let batch_count = num_cpus::get();
+    let items_per_batch = files.len() / batch_count;
+
+    let mut set = JoinSet::new();
+
+    for i in 0..batch_count {
+        let files = Vec::from(&files[(i * batch_count)..((i + items_per_batch) * (batch_count + 1).min(files.len()))]);
+
+        set.spawn(
+            tokio::spawn(
+                async move {
+                    scrape_files(&files, &String::default())
+                }));
+    }
+
+    let mut all_matches = Vec::new();
+
+    while let Some(res) = set.join_next().await {
+        for item in res.unwrap().iter().flat_map(|item| { item }) {
+            all_matches.push((*item).clone());
+        }
+    }
+
+    all_matches
 }
 
 pub fn scrape_files(files: &[String], query: &str) -> Vec<Match> {

@@ -1,11 +1,11 @@
-use std::str::FromStr;
-
 use rust_indexer::{index::Index, text_scraping};
+use std::str::FromStr;
 
 const MAX_STATS_ROWS: usize = 100;
 
-fn main() {
-    let index = rust_indexer::index::index_directory("/home/christian/code/roslyn/src", false);
+#[tokio_macros::main]
+async fn main() {
+    let index = rust_indexer::index::index_directory("D:\\Repos\\Roslyn\\src", false);
 
     print_stats(&index);
 
@@ -34,7 +34,7 @@ fn main() {
             ordered_matches.len(),
             files_matched_percentage);
 
-        let scrapings = text_scraping::scrape_files(&ordered_matches, &buffer.trim());
+        let scrapings = text_scraping::parallel_scrape_files(&ordered_matches, &buffer.trim()).await;
         for scraped_match in scrapings {
             println!("In '{}'...", scraped_match.file_path);
             println!("{}", scraped_match.text);
