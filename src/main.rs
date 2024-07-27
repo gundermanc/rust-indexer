@@ -33,7 +33,7 @@ async fn main() {
         let query = cmd_args.get(3).unwrap();
         let index = Index::from_file(&index_path);
 
-        let matching_files = get_matching_files(&index, &query);
+        let matching_files = get_matching_files(&index, &query).await;
 
         scrape_and_format_matches(&matching_files, &query).await;
 
@@ -42,6 +42,21 @@ async fn main() {
             "Matched {} files ({}%)",
             matching_files.len(),
             files_matched_percentage);
+    } else if command == "repl" {
+        loop {
+            let query = prompt_for_input("Search >");
+            let index = Index::from_file(&index_path);
+    
+            let matching_files = get_matching_files(&index, &query).await;
+    
+            scrape_and_format_matches(&matching_files, &query).await;
+    
+            let files_matched_percentage = (matching_files.len() as f32 / index.files_count() as f32) * 100f32;
+            println!(
+                "Matched {} files ({}%)",
+                matching_files.len(),
+                files_matched_percentage);
+        }
     } else {
         print_help();
     }
@@ -54,10 +69,19 @@ fn print_help() {
     print_with_color("Usage:".white());
     print_with_color("  rust-indexer [index] [path] -- reindex folder.".white());
     print_with_color("  rust-indexer [search] [path] [query] -- find matches.".white());
+    print_with_color("  rust-indexer [repl] [path] -- keep alive. Potentially faster.".white());
 }
 
-fn get_matching_files(index: &Index, query: &str) -> Vec<String> {
-    let matches = index.search_files(&query.trim());
+fn prompt_for_input(prompt: &str) -> String {
+    println!("{} >", prompt.cyan());
+    let mut buffer = String::new();
+    let stdin = std::io::stdin(); // We get `Stdin` here.
+    stdin.read_line(&mut buffer).unwrap();
+    buffer
+}
+
+async fn get_matching_files(index: &Index, query: &str) -> Vec<String> {
+    let matches = index.search_files(&query.trim()).await;
     let mut ordered_matches: Vec<String> = Vec::from_iter(matches);
     ordered_matches.sort();
 

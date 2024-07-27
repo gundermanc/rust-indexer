@@ -3,6 +3,7 @@ use crate::{bloom::BloomFilter, compression_utils::lowercase_alphanumeric_only};
 use crate::trigram::Trigram;
 use rmp_serde::Serializer;
 use serde::{Serialize, Deserialize};
+use std::hash::Hash;
 use std::io::{Read, Write};
 use std::{collections::HashSet, path::Path};
 use std::fs::File;
@@ -124,7 +125,7 @@ impl Index {
         file.write_all(&buf).unwrap();
     }
 
-    pub fn search_files(&self, query: &str) -> HashSet<String> {
+    pub async fn search_files(&self, query: &str) -> HashSet<String> {
         let query_trigrams = Trigram::from_str(&lowercase_alphanumeric_only(query));
 
         let u32s: Vec<u32> = query_trigrams
@@ -134,15 +135,29 @@ impl Index {
         
         let query_bloom_filter = BloomFilter::new(&u32s, BLOOM_FILTER_SIZE);
 
-        let mut results = HashSet::new();
+        let mut set = JoinSet::new();
 
-        for file in &self.files {
-            if file.bloom_filter.possibly_contains(&query_bloom_filter) {
-                results.insert(file.file_path.clone());
+        for batch in batch_items_by_cpu_count(&self.files) {
+            let task_bloom_filter = query_bloom_filter.clone();
+            set.spawn(
+                tokio::spawn(
+                    async move {
+                        Vec::from_iter(batch
+                            .iter()
+                            .map(|file| file.clone())
+                            .filter(|file| file.bloom_filter.possibly_contains(&task_bloom_filter)))
+                    }));
+        }
+        
+        let mut all_matches: HashSet<String> = HashSet::new();
+    
+        while let Some(res) = set.join_next().await {
+            for item in res.unwrap().iter().flat_map(|item| { item }) {
+                all_matches.insert(item.file_path.clone());
             }
         }
-
-        results
+    
+        all_matches
     }
 }
 
