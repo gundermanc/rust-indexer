@@ -1,3 +1,6 @@
+use tokio::task::JoinSet;
+
+use crate::parallel::batch_items_by_cpu_count;
 use crate::{bloom::BloomFilter, compression_utils::lowercase_alphanumeric_only};
 use crate::trigram::Trigram;
 use std::collections::HashMap;
@@ -5,28 +8,84 @@ use std::{collections::HashSet, path::Path};
 
 const BLOOM_FILTER_SIZE: usize = 714;
 
-pub fn index_directory(path: &str, track_repo_stats: bool) -> Index {
-    let mut index = Index::new(track_repo_stats);
+pub async fn parallel_index_directory(path: &str) -> Index {
+    let files = enumerate_directory(path);
 
-    index_directory_recursive(&mut index, path);
+    let mut set = JoinSet::new();
+
+    for batch in batch_items_by_cpu_count(&files) {
+        set.spawn(
+            tokio::spawn(
+                async move {
+                    Vec::from_iter(batch.iter().map(|file| bloom_index_file(&file)))
+                }));
+    }
+
+    let mut all_matches = Vec::new();
+
+    while let Some(res) = set.join_next().await {
+        for item in res.unwrap().iter().flat_map(|item| { item }) {
+            if let Ok(ok_item) = item {
+                all_matches.push(ok_item.clone());
+            }
+        }
+    }
+
+    let mut index = Index::new(false);
+
+    for item in all_matches {
+        index.add_file(item)
+    }
 
     index
 }
 
-fn index_directory_recursive(index: &mut Index, path: &str) {
+fn enumerate_directory(path: &str) -> Vec<String> {
+    let mut file_paths = Vec::new();
     let files = std::fs::read_dir(path).unwrap();
 
     for file in files {
         let unwrapped_file = file.unwrap();
-        
+
         if unwrapped_file.file_type().unwrap().is_file() {
             println!("Indexing {}...", unwrapped_file.path().display());
-    
-            index.add_file(unwrapped_file.path().to_str().unwrap());
+
+            file_paths.push(unwrapped_file.path().to_str().unwrap().to_string());
         } else if unwrapped_file.file_type().unwrap().is_dir() {
-            index_directory_recursive(index, unwrapped_file.path().to_str().unwrap());
+            let file_path_buffer = unwrapped_file.path();
+            let file_path = file_path_buffer.to_str().unwrap();
+
+            // Exclude the dot git folder in repos.
+            if !file_path.ends_with(".git") {
+                for path in enumerate_directory(unwrapped_file.path().to_str().unwrap()) {
+                    file_paths.push(path.to_string());
+                }
+            }
         }
     }
+
+    file_paths
+}
+
+fn bloom_index_file(file_path: &str) -> Result<File, std::io::Error> {
+
+    let file_text = std::fs::read_to_string(Path::new(file_path))?;
+
+    let trigrams = Trigram::from_str(&&lowercase_alphanumeric_only(&file_text));
+
+    let u32s: Vec<u32> = trigrams
+        .iter()
+        .map(|t| t.to_u32())
+        .collect();
+
+    let bloom_filter = BloomFilter::new(&u32s, BLOOM_FILTER_SIZE);
+
+    Ok(
+        File {
+            file_path: file_path.to_string(),
+            bloom_filter,
+        }
+    )
 }
 
 pub struct Index {
@@ -42,27 +101,8 @@ impl Index {
         }
     }
 
-    pub fn add_file(&mut self, file_path: &str) {
-        if let Ok(file_text) = std::fs::read_to_string(Path::new(file_path)) {
-            let trigrams = Trigram::from_str(&&lowercase_alphanumeric_only(&file_text));
-
-            // If stats tracking is enabled, record how often we see each trigram.
-            Self::record_trigram_counts_if_needed(&mut self.trigram_counts, &trigrams);
-
-            let u32s: Vec<u32> = trigrams
-                .iter()
-                .map(|t| t.to_u32())
-                .collect();
-    
-            let bloom_filter = BloomFilter::new(&u32s, BLOOM_FILTER_SIZE);
-    
-            self.files.push(File {
-                file_path: file_path.to_string(),
-                bloom_filter,
-            })
-        } else {
-            // TODO
-        }
+    pub fn add_file(&mut self, file: File) {
+        self.files.push(file);
     }
 
     pub fn files_count(&self) -> usize {
@@ -103,23 +143,9 @@ impl Index {
 
         results
     }
-
-    fn record_trigram_counts_if_needed(trigram_counts: &mut Option<HashMap<Trigram, usize>>, trigrams: &[Trigram]) {
-        if let Some(trigram_counts_present) = trigram_counts {
-            for trigram in trigrams {
-
-                let updated_count = if let Some(this_trigrams_counts) = trigram_counts_present.get(trigram) {
-                    *this_trigrams_counts + 1
-                } else {
-                    1usize
-                };
-    
-                trigram_counts_present.insert(trigram.clone(), updated_count);
-            }
-        }
-    }
 }
 
+#[derive(Clone)]
 struct File {
     file_path: String,
     bloom_filter: BloomFilter,

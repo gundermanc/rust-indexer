@@ -5,7 +5,7 @@ const MAX_STATS_ROWS: usize = 100;
 
 #[tokio_macros::main]
 async fn main() {
-    let index = rust_indexer::index::index_directory("D:\\Repos\\Roslyn\\src", false);
+    let index = rust_indexer::index::parallel_index_directory("D:\\Repos\\Roslyn\\src").await;
 
     print_stats(&index);
 

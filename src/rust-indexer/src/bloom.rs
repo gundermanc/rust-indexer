@@ -1,5 +1,6 @@
 use std::iter::Iterator;
 
+#[derive(Clone)]
 pub struct BloomFilter {
     pub filter_array: Vec<u64>
 }
