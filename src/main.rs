@@ -43,10 +43,10 @@ async fn main() {
             matching_files.len(),
             files_matched_percentage);
     } else if command == "repl" {
+        let index = Index::from_file(&index_path);
+
         loop {
-            let query = prompt_for_input("Search >");
-            let index = Index::from_file(&index_path);
-    
+            let query = prompt_for_input("Search >");    
             let matching_files = get_matching_files(&index, &query).await;
     
             scrape_and_format_matches(&matching_files, &query).await;
