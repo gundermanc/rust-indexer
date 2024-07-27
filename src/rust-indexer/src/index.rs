@@ -48,8 +48,6 @@ fn enumerate_directory(path: &str) -> Vec<String> {
         let unwrapped_file = file.unwrap();
 
         if unwrapped_file.file_type().unwrap().is_file() {
-            println!("Indexing {}...", unwrapped_file.path().display());
-
             file_paths.push(unwrapped_file.path().to_str().unwrap().to_string());
         } else if unwrapped_file.file_type().unwrap().is_dir() {
             let file_path_buffer = unwrapped_file.path();
