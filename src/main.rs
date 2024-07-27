@@ -1,65 +1,79 @@
-mod indexer;
+use colored::{ColoredString, Colorize};
+use rust_indexer::{index::Index, text_scraping::{self}};
+use std::env::args;
 
-use async_std::io;
-use glob::glob;
+#[tokio_macros::main]
+async fn main() {
+    let cmd_args: Vec<String> = args().collect();
 
-use crate::indexer::indexer::IndexBatch;
-
-fn main() {
-    let batch_count = 20;
-
-    let mut batches: Vec<Vec<String>> = Vec::new();
-
-    for batch_num in 0..batch_count {
-        batches.push(Vec::new());
+    if cmd_args.len() < 2 {
+        print_help();
+        return;
     }
 
-    let mut i = 0;
+    let command = cmd_args.get(1).unwrap();
+    let path = cmd_args.get(2).unwrap();
 
-    // Break up into batches.
-    for path in glob("D:\\Repos\\RepoName\\src\\**\\*").expect("Failed to read glob pattern") {
-        match path {
-            Ok(path) => {
-                batches[i % batch_count].push(path.display().to_string());
-            }
-            Err(e) => println!("{:?}", e),
+    let index_path = format!("{}.index.dat", path);
+
+    if command == "index" {
+        print_with_color("Indexing...".cyan());
+        let index = rust_indexer::index::parallel_index_directory(path).await;
+
+        print_with_color("Saving index...".cyan());
+        index.save(&index_path);
+
+        print_with_color("Done!".green());
+    } else if command == "search" {
+        if cmd_args.len() != 4 {
+            print_help();
+            return;
         }
 
-        i += 1;
+        let query = cmd_args.get(3).unwrap();
+        let index = Index::from_file(&index_path);
+
+        let matching_files = get_matching_files(&index, &query);
+
+        scrape_and_format_matches(&matching_files, &query).await;
+
+        let files_matched_percentage = (matching_files.len() as f32 / index.files_count() as f32) * 100f32;
+        println!(
+            "Matched {} files ({}%)",
+            matching_files.len(),
+            files_matched_percentage);
+    } else {
+        print_help();
     }
+}
 
-    let mut tasks: Vec<async_std::task::JoinHandle<IndexBatch>> = Vec::new();
+fn print_help() {
+    print_with_color("Rust Code Indexer".cyan());
+    print_with_color("(C) 2024 Christian Gunderman".cyan());
+    println!();
+    print_with_color("Usage:".white());
+    print_with_color("  rust-indexer [index] [path] -- reindex folder.".white());
+    print_with_color("  rust-indexer [search] [path] [query] -- find matches.".white());
+}
 
-    // Start each batch in parallel.
-    for batch in batches {
-        let task = async_std::task::spawn(async {
-            let mut batch_index = indexer::indexer::IndexBatch::new();
+fn get_matching_files(index: &Index, query: &str) -> Vec<String> {
+    let matches = index.search_files(&query.trim());
+    let mut ordered_matches: Vec<String> = Vec::from_iter(matches);
+    ordered_matches.sort();
 
-            for file in batch {
-                batch_index.index_file(&file);
-            }
+    ordered_matches
+}
 
-            return batch_index;
-        });
+async fn scrape_and_format_matches(files: &Vec<String>, query: &str) {
+    let scrapings = text_scraping::parallel_scrape_files(&files, &query.trim()).await;
 
-        tasks.push(task);
+    for scraped_match in scrapings {
+        println!("In '{}'...", scraped_match.file_path.black().on_cyan());
+        println!("{}", scraped_match.text.italic().yellow());
+        println!();
     }
+}
 
-    let results = async_std::task::block_on(futures::future::join_all(tasks));
-
-    let merged_index = IndexBatch::merge(results);
-
-    loop {
-        print!("Enter query> \r\n");
-
-        let mut buf = String::new();
-        async_std::task::block_on(io::stdin().read_line(&mut buf));
-        let candidates = merged_index.get_candidates(buf.as_str());
-
-        print!("\r\n");
-
-        for candidate in candidates {
-            print!("{}\r\n", candidate);
-        }
-    }
+fn print_with_color(colored_str: ColoredString) {
+    println!("{}", colored_str);
 }
