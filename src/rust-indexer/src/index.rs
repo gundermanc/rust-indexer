@@ -1,10 +1,12 @@
-use tokio::task::JoinSet;
-
 use crate::parallel::batch_items_by_cpu_count;
 use crate::{bloom::BloomFilter, compression_utils::lowercase_alphanumeric_only};
 use crate::trigram::Trigram;
-use std::collections::HashMap;
+use rmp_serde::Serializer;
+use serde::{Serialize, Deserialize};
+use std::io::{Read, Write};
 use std::{collections::HashSet, path::Path};
+use std::fs::File;
+use tokio::task::JoinSet;
 
 const BLOOM_FILTER_SIZE: usize = 714;
 
@@ -31,7 +33,7 @@ pub async fn parallel_index_directory(path: &str) -> Index {
         }
     }
 
-    let mut index = Index::new(false);
+    let mut index = Index::new();
 
     for item in all_matches {
         index.add_file(item)
@@ -65,7 +67,7 @@ fn enumerate_directory(path: &str) -> Vec<String> {
     file_paths
 }
 
-fn bloom_index_file(file_path: &str) -> Result<File, std::io::Error> {
+fn bloom_index_file(file_path: &str) -> Result<FileEntry, std::io::Error> {
 
     let file_text = std::fs::read_to_string(Path::new(file_path))?;
 
@@ -79,27 +81,34 @@ fn bloom_index_file(file_path: &str) -> Result<File, std::io::Error> {
     let bloom_filter = BloomFilter::new(&u32s, BLOOM_FILTER_SIZE);
 
     Ok(
-        File {
+        FileEntry {
             file_path: file_path.to_string(),
             bloom_filter,
         }
     )
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Index {
-    trigram_counts: Option<HashMap<Trigram, usize>>,
-    files: Vec<File>
+    files: Vec<FileEntry>
 }
 
 impl Index {
-    fn new(track_repo_stats: bool) -> Index {
+    pub fn new() -> Index {
         Index {
-            trigram_counts: if track_repo_stats { Some(HashMap::new()) } else { None },
             files: Vec::new()
         }
     }
 
-    pub fn add_file(&mut self, file: File) {
+    pub fn from_file(path: &str) -> Index {
+        let mut buf = Vec::new();
+        let mut index_read = File::open(path).unwrap();
+        index_read.read_to_end(&mut buf).unwrap();
+
+        rmp_serde::from_slice(&buf).unwrap()
+    }
+
+    pub fn add_file(&mut self, file: FileEntry) {
         self.files.push(file);
     }
 
@@ -107,18 +116,12 @@ impl Index {
         self.files.len()
     }
 
-    pub fn trigram_stats(&self) -> Option<Vec<(Trigram, usize)>> {
-        if let Some(trigram_counts_present) = &self.trigram_counts {
-            let mut trigrams: Vec<(Trigram, usize)> = Vec::from_iter(
-                trigram_counts_present.iter().map(|pair| (pair.0.clone(), *pair.1)));
-
-            // Sort in descending order by count.
-            trigrams.sort_by(|a, b| a.1.cmp(&b.1));
-
-            Some(trigrams)
-        } else {
-            None
-        }
+    pub fn save(&self, path: &str) {
+        let mut buf = Vec::new();
+        self.serialize(&mut Serializer::new(&mut buf)).unwrap();
+    
+        let mut file = File::create(path).unwrap();
+        file.write_all(&buf).unwrap();
     }
 
     pub fn search_files(&self, query: &str) -> HashSet<String> {
@@ -143,8 +146,8 @@ impl Index {
     }
 }
 
-#[derive(Clone)]
-struct File {
+#[derive(Clone, Serialize, Deserialize)]
+struct FileEntry {
     file_path: String,
     bloom_filter: BloomFilter,
 }

@@ -1,6 +1,8 @@
 use std::iter::Iterator;
 
-#[derive(Clone)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Serialize, Deserialize)]
 pub struct BloomFilter {
     pub filter_array: Vec<u64>
 }
