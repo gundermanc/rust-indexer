@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use tokio::{task::JoinSet};
+use tokio::task::JoinSet;
 
 use crate::parallel::batch_items_by_cpu_count;
 
@@ -22,24 +22,23 @@ pub async fn parallel_scrape_files(files: &[String], query: &str) -> Vec<Match> 
         let task_query = String::from_str(query).unwrap();
 
         set.spawn(
-            tokio::spawn(
-                async move {
-                    scrape_files(&batch, &task_query)
-                }));
+            async move {
+                scrape_files(&batch, &task_query).await
+            });
     }
 
     let mut all_matches = Vec::new();
 
     while let Some(res) = set.join_next().await {
-        for item in res.unwrap().iter().flat_map(|item| { item }) {
-            all_matches.push((*item).clone());
+        for item in res.unwrap() {
+            all_matches.push(item);
         }
     }
 
     all_matches
 }
 
-pub fn scrape_files(files: &[String], query: &str) -> Vec<Match> {
+pub async fn scrape_files(files: &[String], query: &str) -> Vec<Match> {
     if query.len() == 0 {
         return vec![];
     }
@@ -49,6 +48,7 @@ pub fn scrape_files(files: &[String], query: &str) -> Vec<Match> {
     for file in files {
         // TODO: I'm sure that we can do this faster by doing case-insensitive comparisons
         // instead of a to_lowercase().
+        String::from_utf8(tokio::fs::read(file).await.unwrap());
         let file_text = std::fs::read_to_string(file).unwrap();
         let file_text_without_bom = drop_bom(&file_text);
         let lowered_file_text = file_text_without_bom.to_lowercase();
@@ -126,24 +126,24 @@ mod tests {
 
     use super::scrape_files;
 
-    #[test]
-    fn scrape_emptystring() {
+    #[tokio::test]
+    async fn scrape_emptystring() {
         for file in std::fs::read_dir(".").unwrap() {
             println!("{}", file.unwrap().path().display());
         }
 
-        let matches = scrape_files(&vec![String::from_str("test-assets/test-file-lf.txt").unwrap()], "");
+        let matches = scrape_files(&vec![String::from_str("test-assets/test-file-lf.txt").unwrap()], "").await;
 
         assert!(matches.len() == 0);
     }
 
-    #[test]
-    fn scrape_matches_lf() {
+    #[tokio::test]
+    async fn scrape_matches_lf() {
         for file in std::fs::read_dir(".").unwrap() {
             println!("{}", file.unwrap().path().display());
         }
 
-        let matches = scrape_files(&vec![String::from_str("test-assets/test-file-lf.txt").unwrap()], "abc");
+        let matches = scrape_files(&vec![String::from_str("test-assets/test-file-lf.txt").unwrap()], "abc").await;
 
         assert_eq!(3, matches.len());
 
@@ -163,13 +163,13 @@ mod tests {
         assert_eq!("QRSTUVWX\nYZ012345\nABCDEFGH ABCDEFGH\nIJKLMNOP IJKLMNOP\nQRSTUVWX QRSTUVWX", matches[2].text);
     }
 
-    #[test]
-    fn scrape_matches_lf_bom() {
+    #[tokio::test]
+    async fn scrape_matches_lf_bom() {
         for file in std::fs::read_dir(".").unwrap() {
             println!("{}", file.unwrap().path().display());
         }
 
-        let matches = scrape_files(&vec![String::from_str("test-assets/test-file-lf-BOM.txt").unwrap()], "abc");
+        let matches = scrape_files(&vec![String::from_str("test-assets/test-file-lf-BOM.txt").unwrap()], "abc").await;
 
         assert_eq!(3, matches.len());
 
@@ -189,13 +189,13 @@ mod tests {
         assert_eq!("QRSTUVWX\nYZ012345\nABCDEFGH ABCDEFGH\nIJKLMNOP IJKLMNOP\nQRSTUVWX QRSTUVWX", matches[2].text);
     }
 
-    #[test]
-    fn scrape_nonmatches_lf() {
+    #[tokio::test]
+    async fn scrape_nonmatches_lf() {
         for file in std::fs::read_dir(".").unwrap() {
             println!("{}", file.unwrap().path().display());
         }
 
-        let matches = scrape_files(&vec![String::from_str("test-assets/test-file-lf.txt").unwrap()], "cba");
+        let matches = scrape_files(&vec![String::from_str("test-assets/test-file-lf.txt").unwrap()], "cba").await;
 
         assert_eq!(0, matches.len());
     }

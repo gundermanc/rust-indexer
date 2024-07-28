@@ -3,7 +3,6 @@ use crate::{bloom::BloomFilter, compression_utils::lowercase_alphanumeric_only};
 use crate::trigram::Trigram;
 use rmp_serde::Serializer;
 use serde::{Serialize, Deserialize};
-use std::hash::Hash;
 use std::io::{Read, Write};
 use std::{collections::HashSet, path::Path};
 use std::fs::File;
@@ -18,18 +17,17 @@ pub async fn parallel_index_directory(path: &str) -> Index {
 
     for batch in batch_items_by_cpu_count(&files) {
         set.spawn(
-            tokio::spawn(
-                async move {
-                    Vec::from_iter(batch.iter().map(|file| bloom_index_file(&file)))
-                }));
+            async move {
+                Vec::from_iter(batch.iter().map(|file| bloom_index_file(&file)))
+            });
     }
 
     let mut all_matches = Vec::new();
 
     while let Some(res) = set.join_next().await {
-        for item in res.unwrap().iter().flat_map(|item| { item }) {
+        for item in res.unwrap() {
             if let Ok(ok_item) = item {
-                all_matches.push(ok_item.clone());
+                all_matches.push(ok_item);
             }
         }
     }
@@ -140,19 +138,18 @@ impl Index {
         for batch in batch_items_by_cpu_count(&self.files) {
             let task_bloom_filter = query_bloom_filter.clone();
             set.spawn(
-                tokio::spawn(
-                    async move {
-                        Vec::from_iter(batch
-                            .iter()
-                            .map(|file| file.clone())
-                            .filter(|file| file.bloom_filter.possibly_contains(&task_bloom_filter)))
-                    }));
+                async move {
+                    Vec::from_iter(batch
+                        .iter()
+                        .map(|file| file.clone())
+                        .filter(|file| file.bloom_filter.possibly_contains(&task_bloom_filter)))
+                });
         }
         
         let mut all_matches: HashSet<String> = HashSet::new();
     
         while let Some(res) = set.join_next().await {
-            for item in res.unwrap().iter().flat_map(|item| { item }) {
+            for item in res.unwrap() {
                 all_matches.insert(item.file_path.clone());
             }
         }
