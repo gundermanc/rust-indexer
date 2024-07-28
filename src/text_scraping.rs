@@ -48,8 +48,7 @@ pub async fn scrape_files(files: &[String], query: &str) -> Vec<Match> {
     for file in files {
         // TODO: I'm sure that we can do this faster by doing case-insensitive comparisons
         // instead of a to_lowercase().
-        String::from_utf8(tokio::fs::read(file).await.unwrap());
-        let file_text = std::fs::read_to_string(file).unwrap();
+        let file_text = String::from_utf8(tokio::fs::read(file).await.unwrap()).unwrap();
         let file_text_without_bom = drop_bom(&file_text);
         let lowered_file_text = file_text_without_bom.to_lowercase();
         let lowered_query = query.to_lowercase();
