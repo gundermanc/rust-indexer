@@ -23,6 +23,18 @@ impl BloomFilter {
         }
     }
 
+    pub fn from_filters(bloom_filters: &[BloomFilter]) -> BloomFilter {
+        let mut combined = bloom_filters.get(0).unwrap().clone();
+
+        for filter in bloom_filters {
+            for (i, item) in filter.filter_array.iter().enumerate() {
+                combined.filter_array[i] |= item;
+            }
+        }
+
+        combined
+    }
+
     pub fn possibly_contains(&self, other: &BloomFilter) -> bool {
         if self.filter_array.len() != other.filter_array.len() {
             panic!("Bloom filters must be the same length to compare.")

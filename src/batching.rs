@@ -1,5 +1,10 @@
 pub fn batch_items_by_cpu_count<TItem: Clone>(items: &[TItem]) -> Vec<Vec<TItem>> {
     let batch_count = num_cpus::get();
+    
+    batch_items(items, batch_count)
+}
+
+pub fn batch_items<TItem: Clone>(items: &[TItem], batch_count: usize) -> Vec<Vec<TItem>> {
     let items_per_batch = (items.len() as f32 / batch_count as f32).ceil() as usize;
 
     let mut batches = Vec::new(); 

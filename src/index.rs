@@ -1,4 +1,4 @@
-use crate::parallel::batch_items_by_cpu_count;
+use crate::batching::{batch_items, batch_items_by_cpu_count};
 use crate::{bloom::BloomFilter, compression_utils::lowercase_alphanumeric_only};
 use crate::trigram::Trigram;
 use rmp_serde::Serializer;
@@ -9,6 +9,99 @@ use std::fs::File;
 use tokio::task::JoinSet;
 
 const BLOOM_FILTER_SIZE: usize = 714;
+const CHILDREN_PER_NODE: usize = 2;
+
+#[derive(Clone)]
+pub struct IndexTree {
+    child_indexes: Vec<Index>,
+    child_nodes: Vec<IndexTree>,
+    bloom_filter: BloomFilter,
+}
+
+impl IndexTree {
+    pub fn from_index(index: &Index) -> IndexTree {
+        // Create a new mini index from each batch.
+        let batches: Vec<Index> = batch_items(&index.files, index.files_count() / CHILDREN_PER_NODE)
+            .into_iter()
+            .map(|batch| Index { files: batch })
+            .collect();
+
+        let mut nodes: Vec<IndexTree> = batch_items(&batches, batches.len() / CHILDREN_PER_NODE)
+            .into_iter()
+            .map(|batch| Self::from_nodes(&batch, &[]))
+            .collect();
+
+        while nodes.len() > CHILDREN_PER_NODE {
+            nodes = batch_items(&nodes, nodes.len() / CHILDREN_PER_NODE)
+                .into_iter()
+                .map(|batch| Self::from_nodes(&[], &batch))
+                .collect();
+        }
+
+        IndexTree::from_nodes(&[], &nodes)
+    }
+
+    pub fn from_nodes(child_indexes: &[Index], nodes: &[IndexTree]) -> IndexTree {
+
+        // Get the bloom filters from the child index.
+        let index_filters = child_indexes
+            .iter()
+            .flat_map(|index| index.files.clone())
+            .map(|file|file.bloom_filter);
+
+        // Get the bloom filters from the child nodes.
+        let child_filters = nodes.iter().map(|node| node.bloom_filter.clone());
+
+        let combined: Vec<BloomFilter> = child_filters
+            .chain(index_filters)
+            .collect();
+
+        IndexTree {
+            child_indexes: Vec::new(),
+            child_nodes: Vec::from(nodes),
+            bloom_filter: BloomFilter::from_filters(&combined),
+        }
+    }
+
+    pub fn search_files(&self, query: &str) -> HashSet<String> {
+        let mut files = HashSet::new();
+
+        let trigrams = Trigram::from_str(&&lowercase_alphanumeric_only(&query));
+
+        let u32s: Vec<u32> = trigrams
+            .iter()
+            .map(|t| t.to_u32())
+            .collect();
+    
+        let query_bloom_filter = BloomFilter::new(&u32s, BLOOM_FILTER_SIZE);
+
+        Self::search_node_for_files(&query_bloom_filter, &mut files, self);
+
+        files
+    }
+
+    fn search_node_for_files(query: &BloomFilter, files: &mut HashSet<String>, node: &IndexTree) {
+        // Check if the merged bloom filter is a match. If so, there may be relevant children.
+        if !node.bloom_filter.possibly_contains(query) {
+            return;
+        }
+
+        // Search relevant child nodes.
+        for child_node in &node.child_nodes {
+            Self::search_node_for_files(query, files, child_node);
+        }
+
+        // Search any direct children.
+        for index in &node.child_indexes {
+            for file in &index.files {
+                if file.bloom_filter.possibly_contains(query) {
+                    files.insert(file.file_path.clone());
+                }
+            }
+        }
+    }
+}
+
 
 pub async fn parallel_index_directory(path: &str) -> Index {
     let files = enumerate_directory(path);
@@ -87,7 +180,7 @@ fn bloom_index_file(file_path: &str) -> Result<FileEntry, std::io::Error> {
     )
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Index {
     files: Vec<FileEntry>
 }
