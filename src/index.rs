@@ -57,13 +57,13 @@ impl IndexTree {
             .collect();
 
         IndexTree {
-            child_indexes: Vec::new(),
+            child_indexes: Vec::from(child_indexes),
             child_nodes: Vec::from(nodes),
             bloom_filter: BloomFilter::from_filters(&combined),
         }
     }
 
-    pub fn search_files(&self, query: &str) -> HashSet<String> {
+    pub fn search_files(&self, query: &str) -> (HashSet<String>, usize) {
         let mut files = HashSet::new();
 
         let trigrams = Trigram::from_str(&&lowercase_alphanumeric_only(&query));
@@ -75,30 +75,37 @@ impl IndexTree {
     
         let query_bloom_filter = BloomFilter::new(&u32s, BLOOM_FILTER_SIZE);
 
-        Self::search_node_for_files(&query_bloom_filter, &mut files, self);
+        let bloom_filters_checked = Self::search_node_for_files(&query_bloom_filter, &mut files, self);
 
-        files
+        (files, bloom_filters_checked)
     }
 
-    fn search_node_for_files(query: &BloomFilter, files: &mut HashSet<String>, node: &IndexTree) {
+    fn search_node_for_files(query: &BloomFilter, files: &mut HashSet<String>, node: &IndexTree) -> usize {
+        let mut bloom_filters_checked = 0;
+
         // Check if the merged bloom filter is a match. If so, there may be relevant children.
         if !node.bloom_filter.possibly_contains(query) {
-            return;
+            bloom_filters_checked += 1;
+            return bloom_filters_checked;
         }
 
         // Search relevant child nodes.
         for child_node in &node.child_nodes {
-            Self::search_node_for_files(query, files, child_node);
+            bloom_filters_checked += Self::search_node_for_files(query, files, child_node);
         }
 
         // Search any direct children.
         for index in &node.child_indexes {
             for file in &index.files {
+                bloom_filters_checked += 1;
+
                 if file.bloom_filter.possibly_contains(query) {
                     files.insert(file.file_path.clone());
                 }
             }
         }
+
+        bloom_filters_checked
     }
 }
 
