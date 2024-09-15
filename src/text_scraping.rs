@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use tokio::task::JoinSet;
 
-use crate::parallel::batch_items_by_cpu_count;
+use crate::batching::batch_items_by_cpu_count;
 
 #[derive(Clone)]
 pub struct Match {
