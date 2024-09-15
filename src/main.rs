@@ -1,5 +1,5 @@
 use colored::{ColoredString, Colorize};
-use rust_indexer::{index::{Index, IndexTree}, text_scraping::{self}};
+use rust_indexer::{index::IndexTree, text_scraping::{self}};
 use std::env::args;
 
 #[tokio_macros::main]
@@ -14,14 +14,18 @@ async fn main() {
     let command = cmd_args.get(1).unwrap();
     let path = cmd_args.get(2).unwrap();
 
-    let index_path = format!("{}.index.dat", path);
+    let index_directory = format!("{}/.index", path);
+    let index_root_path = format!("{}/root.dat", index_directory);
+
+    std::fs::create_dir_all(&index_directory).unwrap();
 
     if command == "index" {
         print_with_color("Indexing...".cyan());
         let index = rust_indexer::index::parallel_index_directory(path).await;
+        let index_tree = IndexTree::from_index(&index, &index_directory);
 
         print_with_color("Saving index...".cyan());
-        index.save(&index_path);
+        index_tree.save(&index_root_path);
 
         print_with_color("Done!".green());
     } else if command == "search" {
@@ -31,26 +35,24 @@ async fn main() {
         }
 
         let query = cmd_args.get(3).unwrap();
-        let index = Index::from_file(&index_path);
-        let index_tree = IndexTree::from_index(&index);
+        let index_tree = IndexTree::from_file(&index_root_path);
 
         let (matching_files, comparisons) = get_matching_files(&index_tree, &query).await;
 
         scrape_and_format_matches(&matching_files, &query).await;
 
-        print_perf_stats(&matching_files, &index, comparisons);
+        print_perf_stats(&matching_files, &index_tree, comparisons);
 
     } else if command == "repl" {
-        let index = Index::from_file(&index_path);
-        let index_tree = IndexTree::from_index(&index);
+        let index_tree = IndexTree::from_file(&index_root_path);
 
         loop {
-            let query = prompt_for_input("Search >");    
+            let query = prompt_for_input("Search >");
             let (matching_files, comparisons) = get_matching_files(&index_tree, &query).await;
     
             scrape_and_format_matches(&matching_files, &query).await;
     
-            print_perf_stats(&matching_files, &index, comparisons);
+            print_perf_stats(&matching_files, &index_tree, comparisons);
         }
     } else {
         print_help();
@@ -93,7 +95,7 @@ async fn scrape_and_format_matches(files: &Vec<String>, query: &str) {
     }
 }
 
-fn print_perf_stats(matching_files: &Vec<String>, index: &Index, comparisons: usize) {
+fn print_perf_stats(matching_files: &Vec<String>, index: &IndexTree, comparisons: usize) {
     let files_matched_percentage = (matching_files.len() as f32 / index.files_count() as f32) * 100f32;
 
     // Percentage of file bloom filters checked. Not technically accurate because this a count

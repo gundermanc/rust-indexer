@@ -3,7 +3,9 @@ use crate::{bloom::BloomFilter, compression_utils::lowercase_alphanumeric_only};
 use crate::trigram::Trigram;
 use rmp_serde::Serializer;
 use serde::{Serialize, Deserialize};
+use uuid::Uuid;
 use std::io::{Read, Write};
+use std::usize;
 use std::{collections::HashSet, path::Path};
 use std::fs::File;
 use tokio::task::JoinSet;
@@ -11,15 +13,16 @@ use tokio::task::JoinSet;
 const BLOOM_FILTER_SIZE: usize = 714;
 const CHILDREN_PER_NODE: usize = 2;
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct IndexTree {
-    child_indexes: Vec<Index>,
+    child_indexes: Vec<LazyIndex>,
     child_nodes: Vec<IndexTree>,
     bloom_filter: BloomFilter,
+    files_count: usize,
 }
 
 impl IndexTree {
-    pub fn from_index(index: &Index) -> IndexTree {
+    pub fn from_index(index: &Index, output_path: &str) -> IndexTree {
         // Create a new mini index from each batch.
         let batches: Vec<Index> = batch_items(&index.files, index.files_count() / CHILDREN_PER_NODE)
             .into_iter()
@@ -28,20 +31,20 @@ impl IndexTree {
 
         let mut nodes: Vec<IndexTree> = batch_items(&batches, batches.len() / CHILDREN_PER_NODE)
             .into_iter()
-            .map(|batch| Self::from_nodes(&batch, &[]))
+            .map(|batch| Self::from_nodes(&batch, &[], output_path))
             .collect();
 
         while nodes.len() > CHILDREN_PER_NODE {
             nodes = batch_items(&nodes, nodes.len() / CHILDREN_PER_NODE)
                 .into_iter()
-                .map(|batch| Self::from_nodes(&[], &batch))
+                .map(|batch| Self::from_nodes(&[], &batch, output_path))
                 .collect();
         }
 
-        IndexTree::from_nodes(&[], &nodes)
+        IndexTree::from_nodes(&[], &nodes, output_path)
     }
 
-    pub fn from_nodes(child_indexes: &[Index], nodes: &[IndexTree]) -> IndexTree {
+    pub fn from_nodes(child_indexes: &[Index], nodes: &[IndexTree], output_path: &str) -> IndexTree {
 
         // Get the bloom filters from the child index.
         let index_filters = child_indexes
@@ -56,11 +59,39 @@ impl IndexTree {
             .chain(index_filters)
             .collect();
 
+        // Serialize the in-memory indexes to a lazy form that can be loaded
+        // piecemeal on demand.
+        let lazy_indexes: Vec<LazyIndex> = child_indexes
+            .iter()
+            .map(|index| LazyIndex::from_index(index, output_path))
+            .collect();
+
+        let files_count = nodes
+            .iter().map(|node| node.files_count).sum::<usize>() +
+            child_indexes.iter().map(|index|index.files_count()).sum::<usize>();
+
         IndexTree {
-            child_indexes: Vec::from(child_indexes),
+            child_indexes: lazy_indexes,
             child_nodes: Vec::from(nodes),
             bloom_filter: BloomFilter::from_filters(&combined),
+            files_count
         }
+    }
+
+    pub fn from_file(path: &str) -> IndexTree {
+        let mut buf = Vec::new();
+        let mut index_read = File::open(path).unwrap();
+        index_read.read_to_end(&mut buf).unwrap();
+
+        rmp_serde::from_slice(&buf).unwrap()
+    }
+
+    pub fn save(&self, path: &str) {
+        let mut buf = Vec::new();
+        self.serialize(&mut Serializer::new(&mut buf)).unwrap();
+    
+        let mut file = File::create(path).unwrap();
+        file.write_all(&buf).unwrap();
     }
 
     pub fn search_files(&self, query: &str) -> (HashSet<String>, usize) {
@@ -80,6 +111,10 @@ impl IndexTree {
         (files, bloom_filters_checked)
     }
 
+    pub fn files_count(&self) -> usize {
+        self.files_count
+    }
+
     fn search_node_for_files(query: &BloomFilter, files: &mut HashSet<String>, node: &IndexTree) -> usize {
         let mut bloom_filters_checked = 0;
 
@@ -96,7 +131,7 @@ impl IndexTree {
 
         // Search any direct children.
         for index in &node.child_indexes {
-            for file in &index.files {
+            for file in &index.get().files {
                 bloom_filters_checked += 1;
 
                 if file.bloom_filter.possibly_contains(query) {
@@ -109,6 +144,31 @@ impl IndexTree {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+pub struct LazyIndex {
+    file_name: String,
+}
+
+impl LazyIndex {
+    pub fn from_file(path: &str) -> LazyIndex {
+        LazyIndex {
+            file_name: path.to_string(),
+        }
+    }
+
+    pub fn from_index(index: &Index, output_path: &str) -> LazyIndex {
+        let file_name = format!("{}/{}", output_path, Uuid::new_v4());
+        index.save(&file_name);
+
+        LazyIndex {
+            file_name,
+        }
+    }
+
+    pub fn get(&self) -> Index {
+        Index::from_file(&self.file_name)
+    }
+}
 
 pub async fn parallel_index_directory(path: &str) -> Index {
     let files = enumerate_directory(path);
