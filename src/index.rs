@@ -372,7 +372,7 @@ impl Index {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-struct FileEntry {
+pub struct FileEntry {
     file_path: String,
     bloom_filter: BloomFilter,
 }
