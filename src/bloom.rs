@@ -52,7 +52,7 @@ impl BloomFilter {
 
 fn input_to_offset_and_bit(input: u32, array_length: usize) -> (usize, u64) {
     let offset = ((input / u64::BITS) as usize) % array_length;
-    let bit = 1 << (input % u64::BITS) as u64;
+    let bit = 1u64 << (input % u64::BITS);
 
     return (offset, bit);
 }
