@@ -24,6 +24,11 @@ impl BloomFilter {
     }
 
     pub fn from_filters(bloom_filters: &[BloomFilter]) -> BloomFilter {
+        if bloom_filters.is_empty() {
+            // Return an empty bloom filter with default size
+            return BloomFilter::new(&[], 714);
+        }
+        
         let mut combined = bloom_filters.get(0).unwrap().clone();
 
         for filter in bloom_filters {
@@ -52,7 +57,7 @@ impl BloomFilter {
 
 fn input_to_offset_and_bit(input: u32, array_length: usize) -> (usize, u64) {
     let offset = ((input / u64::BITS) as usize) % array_length;
-    let bit = 1 << (input % u64::BITS) as u64;
+    let bit = 1u64 << (input % u64::BITS);
 
     return (offset, bit);
 }

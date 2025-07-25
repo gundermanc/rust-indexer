@@ -94,7 +94,7 @@ impl IndexTree {
         file.write_all(&buf).unwrap();
     }
 
-    pub fn search_files(&self, query: &str) -> (HashSet<String>, usize) {
+    pub async fn search_files(&self, query: &str) -> (HashSet<String>, usize) {
         let mut files = HashSet::new();
 
         let trigrams = Trigram::from_str(&&lowercase_alphanumeric_only(&query));
@@ -106,7 +106,7 @@ impl IndexTree {
     
         let query_bloom_filter = BloomFilter::new(&u32s, BLOOM_FILTER_SIZE);
 
-        let bloom_filters_checked = Self::search_node_for_files(&query_bloom_filter, &mut files, self);
+        let bloom_filters_checked = Self::search_node_for_files(&query_bloom_filter, &mut files, self).await;
 
         (files, bloom_filters_checked)
     }
@@ -115,7 +115,7 @@ impl IndexTree {
         self.files_count
     }
 
-    fn search_node_for_files(query: &BloomFilter, files: &mut HashSet<String>, node: &IndexTree) -> usize {
+    async fn search_node_for_files(query: &BloomFilter, files: &mut HashSet<String>, node: &IndexTree) -> usize {
         let mut bloom_filters_checked = 0;
 
         // Check if the merged bloom filter is a match. If so, there may be relevant children.
@@ -124,19 +124,72 @@ impl IndexTree {
             return bloom_filters_checked;
         }
 
-        // Search relevant child nodes.
+        // Search relevant child nodes (recursive).
         for child_node in &node.child_nodes {
-            bloom_filters_checked += Self::search_node_for_files(query, files, child_node);
+            bloom_filters_checked += Box::pin(Self::search_node_for_files(query, files, child_node)).await;
         }
 
-        // Search any direct children.
-        for index in &node.child_indexes {
-            for file in &index.get().files {
-                bloom_filters_checked += 1;
-
-                if file.bloom_filter.possibly_contains(query) {
-                    files.insert(file.file_path.clone());
-                }
+        // Search child indexes in parallel.
+        if !node.child_indexes.is_empty() {
+            let mut set = JoinSet::new();
+            
+            // Create tasks to process each child index
+            for index in &node.child_indexes {
+                let index_clone = index.clone();
+                let query_clone = query.clone();
+                
+                set.spawn(async move {
+                    let loaded_index = index_clone.get();
+                    let mut local_matches = HashSet::new();
+                    let mut local_bloom_checks = 0;
+                    
+                    // If the index has many files, process them in parallel batches
+                    if loaded_index.files.len() > 100 {
+                        let batches = batch_items_by_cpu_count(&loaded_index.files);
+                        let mut inner_set = JoinSet::new();
+                        
+                        for batch in batches {
+                            let batch_query = query_clone.clone();
+                            inner_set.spawn(async move {
+                                let mut batch_matches = HashSet::new();
+                                let mut batch_bloom_checks = 0;
+                                
+                                for file in &batch {
+                                    batch_bloom_checks += 1;
+                                    if file.bloom_filter.possibly_contains(&batch_query) {
+                                        batch_matches.insert(file.file_path.clone());
+                                    }
+                                }
+                                
+                                (batch_matches, batch_bloom_checks)
+                            });
+                        }
+                        
+                        // Collect results from parallel batches
+                        while let Some(res) = inner_set.join_next().await {
+                            let (batch_matches, batch_bloom_checks) = res.unwrap();
+                            local_matches.extend(batch_matches);
+                            local_bloom_checks += batch_bloom_checks;
+                        }
+                    } else {
+                        // For smaller indexes, process sequentially to avoid overhead
+                        for file in &loaded_index.files {
+                            local_bloom_checks += 1;
+                            if file.bloom_filter.possibly_contains(&query_clone) {
+                                local_matches.insert(file.file_path.clone());
+                            }
+                        }
+                    }
+                    
+                    (local_matches, local_bloom_checks)
+                });
+            }
+            
+            // Collect results from all parallel tasks
+            while let Some(res) = set.join_next().await {
+                let (local_matches, local_bloom_checks) = res.unwrap();
+                files.extend(local_matches);
+                bloom_filters_checked += local_bloom_checks;
             }
         }
 
@@ -319,7 +372,7 @@ impl Index {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-struct FileEntry {
+pub struct FileEntry {
     file_path: String,
     bloom_filter: BloomFilter,
 }

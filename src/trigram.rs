@@ -1,4 +1,4 @@
-use std::{fmt::Debug, hash::{Hash, Hasher}, io::SeekFrom, string::FromUtf8Error};
+use std::{fmt::Debug, hash::Hash, string::FromUtf8Error};
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Trigram {

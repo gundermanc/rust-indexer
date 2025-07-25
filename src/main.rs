@@ -78,7 +78,7 @@ fn prompt_for_input(prompt: &str) -> String {
 }
 
 async fn get_matching_files(index: &IndexTree, query: &str) -> (Vec<String>, usize) {
-    let matches = index.search_files(&query.trim());
+    let matches = index.search_files(&query.trim()).await;
     let mut ordered_matches: Vec<String> = Vec::from_iter(matches.0);
     ordered_matches.sort();
 
