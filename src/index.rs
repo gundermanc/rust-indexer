@@ -143,10 +143,41 @@ impl IndexTree {
                     let mut local_matches = HashSet::new();
                     let mut local_bloom_checks = 0;
                     
-                    for file in &loaded_index.files {
-                        local_bloom_checks += 1;
-                        if file.bloom_filter.possibly_contains(&query_clone) {
-                            local_matches.insert(file.file_path.clone());
+                    // If the index has many files, process them in parallel batches
+                    if loaded_index.files.len() > 100 {
+                        let batches = batch_items_by_cpu_count(&loaded_index.files);
+                        let mut inner_set = JoinSet::new();
+                        
+                        for batch in batches {
+                            let batch_query = query_clone.clone();
+                            inner_set.spawn(async move {
+                                let mut batch_matches = HashSet::new();
+                                let mut batch_bloom_checks = 0;
+                                
+                                for file in &batch {
+                                    batch_bloom_checks += 1;
+                                    if file.bloom_filter.possibly_contains(&batch_query) {
+                                        batch_matches.insert(file.file_path.clone());
+                                    }
+                                }
+                                
+                                (batch_matches, batch_bloom_checks)
+                            });
+                        }
+                        
+                        // Collect results from parallel batches
+                        while let Some(res) = inner_set.join_next().await {
+                            let (batch_matches, batch_bloom_checks) = res.unwrap();
+                            local_matches.extend(batch_matches);
+                            local_bloom_checks += batch_bloom_checks;
+                        }
+                    } else {
+                        // For smaller indexes, process sequentially to avoid overhead
+                        for file in &loaded_index.files {
+                            local_bloom_checks += 1;
+                            if file.bloom_filter.possibly_contains(&query_clone) {
+                                local_matches.insert(file.file_path.clone());
+                            }
                         }
                     }
                     
