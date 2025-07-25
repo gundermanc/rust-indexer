@@ -24,6 +24,11 @@ impl BloomFilter {
     }
 
     pub fn from_filters(bloom_filters: &[BloomFilter]) -> BloomFilter {
+        if bloom_filters.is_empty() {
+            // Return an empty bloom filter with default size
+            return BloomFilter::new(&[], 714);
+        }
+        
         let mut combined = bloom_filters.get(0).unwrap().clone();
 
         for filter in bloom_filters {
